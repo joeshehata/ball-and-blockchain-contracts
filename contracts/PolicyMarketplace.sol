@@ -1,152 +1,202 @@
 //pragma solidity ^0.4.1;
+contract PolicyMarketplace {
 
-contract Policy {
-  address public cedingUser;
-  address public assumingUser;
-
-  bytes32 public riskType;
-  uint public ratingExpiration;
-  uint public offerExpiration;
-  bytes32 public territoryOfIssue;
-  uint public policyFaceAmount;
-  bytes32 public gender;
-  uint public dob;
-  bytes32 public disclosures;
-
-
-  uint public auctionEndTime;  // todo: implement
-
-  // todo: put bids here
   struct Bid {
     address bidder;
     uint value;
   }
-  mapping (address => uint) bidderId;
-  Bid[] bids;
 
-  bool public ended = false;
+  struct Policy {
+    bytes32 id;
+    address cedingUser;
+    address assumingUser;
+
+    bytes32 riskType;
+    uint ratingExpiration;
+    uint offerExpiration;
+    bytes32 territoryOfIssue;
+    uint policyFaceAmount;
+    bytes32 gender;
+    uint dob;
+    bytes32 disclosures;
+
+    bool ended;
+  }
+
+  struct Review {
+    bytes32 policyId;
+    address reviewer;
+    uint value;
+    uint cost;
+    bytes32 details;
+    address purchaser;
+  }
+
+  mapping (bytes32 => Bid[]) policyBids;
+  mapping (bytes32 => mapping(address => uint)) bidderdByPolicy;
+
 
   event NewBid(address indexed _from, string _message);
   event CanceledBid(address indexed _from, string _message);
   event Accepted(address indexed _from, string _message);
 
-  function Policy(address _cedingUser, bytes32 _disclosures) {
-      cedingUser = _cedingUser;
-      disclosures = _disclosures;
-  }
+  modifier openOnly(bytes32 _policyId) {
+    uint _index = policyIndexMap[_policyId] - 1;
+    Policy _policy = policies[_index];
 
-  modifier openOnly() {
-    if(ended) {
+    if(_policy.ended) {
       throw;
     }
     _
   }
 
-  modifier notCedingEntity() {
-    if(msg.sender == cedingUser) {
+  modifier notCedingEntity(Policy policy) {
+    if(msg.sender == policy.cedingUser) {
       throw;
     }
     _
   }
 
-  function bid(address bidder, uint _value) openOnly notCedingEntity {
-    Bid memory _newBid;
-    _newBid.bidder = bidder;
-    _newBid.value = _value;
+  // marketplace variables
+  Policy[] public policies;
+  mapping (bytes32 => uint) policyIndexMap; // todo: use a sha function to hash them
 
-    bids.push(_newBid);
-    bidderId[_newBid.bidder] = bids.length;
+  function addPolicy(bytes32 _riskType,
+        uint _ratingExpiration,
+        uint _offerExpiration,
+        bytes32 _territoryOfIssue,
+        uint _policyFaceAmount,
+        bytes32 _gender,
+        uint _dob,
+        bytes32 _disclosures) {
+    Policy memory _policy;
+    bytes32 _id = sha3(policies.length + 1);
+    _policy.id = _id;
+    _policy.cedingUser = msg.sender;
+    _policy.riskType = _riskType;
+    _policy.ratingExpiration = _ratingExpiration;
+    _policy.offerExpiration = _offerExpiration;
+    _policy.territoryOfIssue = _territoryOfIssue;
+    _policy.policyFaceAmount = _policyFaceAmount;
+    _policy.gender = _gender;
+    _policy.dob = _dob;
+    _policy.disclosures = _disclosures;
 
-    NewBid(bidder, "Received a new bid");
+    policies.push(_policy);
+    policyIndexMap[_id] = policies.length;
   }
 
-  function cancelBid() {
-    if (bidderId[msg.sender] > 0) {
-        uint id = bidderId[msg.sender] - 1;
-        Bid _bid = bids[id];
+  /*function getPolicies() constant returns (bytes32[] ids, bytes32[] riskType,
+        uint[] ratingExpiration,
+        uint[] offerExpiration,
+        bytes32[] territoryOfIssue,
+        uint[] policyFaceAmount,
+        bytes32[] gender,
+        uint[] dob,
+        bytes32[] disclosures) {
+    uint length = policies.length;
+    ids = new bytes32[](length);
+    riskType = new bytes32[](length);
+    ratingExpiration = new uint[](length);
+    offerExpiration = new uint[](length);
+    territoryOfIssue = new bytes32[](length);
+    policyFaceAmount = new uint[](length);
+    disclosures = new bytes32[](length);
 
-        _bid.bidder = 0x0;
-        _bid.value = 0;
-        bidderId[msg.sender] = 0;
-        CanceledBid(msg.sender, "Canceled bid");
+    for(uint i = 0; i < length; i++) {
+      //Policy memory _policy = policies[i];
+      ids[i] = policies[i].id;
+      riskType[i] = policies[i].riskType;
+      ratingExpiration[i] = policies[i].ratingExpiration;
+      offerExpiration[i] = policies[i].offerExpiration;
+      territoryOfIssue[i] = policies[i].territoryOfIssue;
+      policyFaceAmount[i] = policies[i].policyFaceAmount;
+      gender[i] = policies[i].gender;
+      dob[i] = policies[i].dob;
+      disclosures[i] = policies[i].disclosures;
     }
+  }*/
+
+  function bid(bytes32 _policyId, uint _value) returns (bool success) {
+    if (policyIndexMap[_policyId] > 0 && bidderdByPolicy[_policyId][msg.sender] == 0) {
+        Bid memory _newBid;
+        _newBid.bidder = msg.sender;
+        _newBid.value = _value;
+
+        policyBids[_policyId].push(_newBid);
+
+        bidderdByPolicy[_policyId][msg.sender] = policyBids[_policyId].length;
+
+        NewBid(msg.sender, "Received a new bid");
+        return true;
+    }
+    return false;
   }
 
-  function getBids() constant returns (address[] bidder, uint[] value) {
-    uint length = bids.length;
+  function getBids(bytes32 _policyId) constant returns (address[] bidders, uint[] values) {
+    if (policyBids[_policyId].length == 0) {
+      throw;
+    }
+
+    uint length = policyBids[_policyId].length;
     address[] memory _bidders = new address[](length);
     uint[] memory _values = new uint[](length);
 
     for(uint i = 0; i < length; i++) {
-      Bid memory _bid = bids[i];
+      Bid memory _bid = policyBids[_policyId][i];
       _bidders[i] = _bid.bidder;
       _values[i] = _bid.value;
     }
 
     return (_bidders, _values);
+
   }
 
-  function accept(address targetBidder) openOnly {
-    /*if(msg.sender == cedingUser) {
-      if (bidderId[targetBidder] > 0) {
-          uint id = bidderId[targetBidder] - 1;
-          Bid _bid = bids[id];
+    /*function cancelBid() {
+      if (bidderId[msg.sender] > 0) {
+          uint id = bidderId[msg.sender] - 1;
+          Ints.Bid _bid = bids[id];
 
-          policy.assumer = targetBidder;
+          _bid.bidder = 0x0;
+          _bid.value = 0;
+          bidderId[msg.sender] = 0;
+          CanceledBid(msg.sender, "Canceled bid");
+      }
+    }
 
-          ended = true;
+  */
+
+  function accept(bytes32 _policyId, address targetBidder) openOnly(_policyId) {
+    uint _index = policyIndexMap[_policyId] - 1;
+    Policy policy = policies[_index];
+    if(msg.sender == policy.cedingUser) {
+      if (bidderdByPolicy[_policyId][targetBidder] > 0) {
+        // true if the bid is active out there
+          uint id = bidderdByPolicy[_policyId][targetBidder] - 1;
+
+          policies[_index].assumingUser = targetBidder;
+
+          policies[_index].ended = true;
 
           Accepted(msg.sender, "Accepted bid");
       }
-    }*/
+    }
   }
 
-}
+  function reviewPolicy(bytes32 _policyId, uint _value, uint _cost, bytes32 _details) {
+    Review memory _review;
 
-contract PolicyMarketplace {
+    _review.policyId = _policyId;
+    _review.reviewer = msg.sender;
+    _review.value = _value;
+    _review.cost = _cost;
+    _review.details = _details;
 
-    address[] policies;
-    mapping (address => uint) policyIndexMap;
+    // todo: map the review to the policy
+  }
 
-    function addPolicy(bytes32 _disclosures, uint _test) {
-      address policyAddress = new Policy(msg.sender, _disclosures);
-
-      policies.push(policyAddress);
-      policyIndexMap[policyAddress] = policies.length;
-    }
-
-    function getPolicies() constant returns (bytes32[]) {
-      /*uint length = policies.length;
-      address[] memory _policies = new address[](length);
-
-      for(uint i = 0; i < length; i++) {
-        _policies[i] = policies[i];
-      }
-
-      return _policies; // todo: return all the fields from the policy*/
-
-      uint length = 10;//policies.length;
-      bytes32[] memory _policies = new bytes32[](length);
-
-      for(uint i = 0; i < length; i++) {
-        _policies[i] = "asdf";
-      }
-
-      return _policies; // todo: return all the fields from the policy
-    }
-
-    function getPolicy(uint _index) constant returns (address policy) {
-      return policies[_index];  // todo: replace with address of targetPolicy
-    }
-
-    function bid(address targetPolicy, uint value) returns (bool success) {
-      if (policyIndexMap[targetPolicy] > 0) {
-          uint id = policyIndexMap[targetPolicy] - 1;
-          Policy(targetPolicy).bid(msg.sender, value);
-          return true;
-      }
-      return false;
-    }
+  /*function buyReview(bytes32 _policyId, uint _value, uint _cost, bytes32 _details) {
+  }*/
 
     /*function getPolicy(bytes32 _disclosures) returns (bytes32 disclosures) {
       return policy.disclosures;
