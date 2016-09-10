@@ -42,6 +42,7 @@ contract PolicyMarketplace {
   mapping (bytes32 => bytes32) reviewById;
 
 
+  event NewPolicy(address indexed _from, string _message);
   event NewBid(address indexed _from, string _message);
   event CanceledBid(address indexed _from, string _message);
   event Accepted(address indexed _from, string _message);
@@ -92,6 +93,7 @@ contract PolicyMarketplace {
 
     policies.push(_policy);
     policyIndexMap[_policy.id] = policies.length;
+    NewPolicy(msg.sender, "we have a new policy");
   }
 
   function getPolicies() constant returns (bytes32[] ids, bytes32[] riskType,
@@ -122,6 +124,17 @@ contract PolicyMarketplace {
     }
   }
 
+  function bytes32ToString (bytes32 data) returns (string) {
+      bytes memory bytesString = new bytes(32);
+      for (uint j=0; j<32; j++) {
+          byte char = byte(bytes32(uint(data) * 2 ** (8 * j)));
+          if (char != 0) {
+              bytesString[j] = char;
+          }
+      }
+      return string(bytesString);
+  }
+
   function bid(bytes32 _policyId, uint _value) returns (bool success) {
     if (policyIndexMap[_policyId] > 0 && bidderByPolicy[_policyId][msg.sender] == 0) {
         Bid memory _newBid;
@@ -132,7 +145,7 @@ contract PolicyMarketplace {
 
         bidderByPolicy[_policyId][msg.sender] = policyBids[_policyId].length;
 
-        NewBid(msg.sender, "Received a new bid");
+        NewBid(msg.sender, bytes32ToString(_policyId));
         return true;
     }
     return false;
