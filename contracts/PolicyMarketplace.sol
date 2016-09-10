@@ -24,6 +24,7 @@ contract PolicyMarketplace {
   }
 
   struct Review {
+    bytes32 id;
     bytes32 policyId;
     address reviewer;
     uint value;
@@ -33,12 +34,19 @@ contract PolicyMarketplace {
   }
 
   mapping (bytes32 => Bid[]) policyBids;
-  mapping (bytes32 => mapping(address => uint)) bidderdByPolicy;
+  mapping (bytes32 => mapping(address => uint)) bidderByPolicy;
+
+
+  mapping (bytes32 => Review[]) policyReviews;
+  mapping (bytes32 => mapping(address => uint)) reviewByPolicy;
+  mapping (bytes32 => bytes32) reviewById;
 
 
   event NewBid(address indexed _from, string _message);
   event CanceledBid(address indexed _from, string _message);
   event Accepted(address indexed _from, string _message);
+  event NewReview(address indexed _from, string _message);
+  event PurchasedReview(address indexed _from, string _message);
 
   modifier openOnly(bytes32 _policyId) {
     uint _index = policyIndexMap[_policyId] - 1;
@@ -83,16 +91,14 @@ contract PolicyMarketplace {
     _policy.disclosures = _disclosures;
 
     policies.push(_policy);
-    policyIndexMap[_id] = policies.length;
+    policyIndexMap[_policy.id] = policies.length;
   }
 
-  /*function getPolicies() constant returns (bytes32[] ids, bytes32[] riskType,
+  function getPolicies() constant returns (bytes32[] ids, bytes32[] riskType,
         uint[] ratingExpiration,
         uint[] offerExpiration,
         bytes32[] territoryOfIssue,
         uint[] policyFaceAmount,
-        bytes32[] gender,
-        uint[] dob,
         bytes32[] disclosures) {
     uint length = policies.length;
     ids = new bytes32[](length);
@@ -104,28 +110,27 @@ contract PolicyMarketplace {
     disclosures = new bytes32[](length);
 
     for(uint i = 0; i < length; i++) {
-      //Policy memory _policy = policies[i];
       ids[i] = policies[i].id;
       riskType[i] = policies[i].riskType;
       ratingExpiration[i] = policies[i].ratingExpiration;
       offerExpiration[i] = policies[i].offerExpiration;
       territoryOfIssue[i] = policies[i].territoryOfIssue;
       policyFaceAmount[i] = policies[i].policyFaceAmount;
-      gender[i] = policies[i].gender;
-      dob[i] = policies[i].dob;
+      /*gender[i] = policies[i].gender;
+      dob[i] = policies[i].dob;*/
       disclosures[i] = policies[i].disclosures;
     }
-  }*/
+  }
 
   function bid(bytes32 _policyId, uint _value) returns (bool success) {
-    if (policyIndexMap[_policyId] > 0 && bidderdByPolicy[_policyId][msg.sender] == 0) {
+    if (policyIndexMap[_policyId] > 0 && bidderByPolicy[_policyId][msg.sender] == 0) {
         Bid memory _newBid;
         _newBid.bidder = msg.sender;
         _newBid.value = _value;
 
         policyBids[_policyId].push(_newBid);
 
-        bidderdByPolicy[_policyId][msg.sender] = policyBids[_policyId].length;
+        bidderByPolicy[_policyId][msg.sender] = policyBids[_policyId].length;
 
         NewBid(msg.sender, "Received a new bid");
         return true;
@@ -170,9 +175,9 @@ contract PolicyMarketplace {
     uint _index = policyIndexMap[_policyId] - 1;
     Policy policy = policies[_index];
     if(msg.sender == policy.cedingUser) {
-      if (bidderdByPolicy[_policyId][targetBidder] > 0) {
+      if (bidderByPolicy[_policyId][targetBidder] > 0) {
         // true if the bid is active out there
-          uint id = bidderdByPolicy[_policyId][targetBidder] - 1;
+          uint id = bidderByPolicy[_policyId][targetBidder] - 1;
 
           policies[_index].assumingUser = targetBidder;
 
@@ -183,9 +188,11 @@ contract PolicyMarketplace {
     }
   }
 
-  function reviewPolicy(bytes32 _policyId, uint _value, uint _cost, bytes32 _details) {
+  function addReview(bytes32 _policyId, uint _value, uint _cost, bytes32 _details) {
     Review memory _review;
 
+    bytes32 _id = sha3(policies.length + 1);
+    _review.id = _id;
     _review.policyId = _policyId;
     _review.reviewer = msg.sender;
     _review.value = _value;
@@ -193,42 +200,52 @@ contract PolicyMarketplace {
     _review.details = _details;
 
     // todo: map the review to the policy
+    policyReviews[_policyId].push(_review);
+    reviewByPolicy[_policyId][msg.sender] = policyReviews[_policyId].length;
+    reviewById[_id] = _policyId;
+    NewReview(msg.sender, "Received a new review");
   }
 
-  /*function buyReview(bytes32 _policyId, uint _value, uint _cost, bytes32 _details) {
-  }*/
-
-    /*function getPolicy(bytes32 _disclosures) returns (bytes32 disclosures) {
-      return policy.disclosures;
-    }*/
-
-    /*function bid(address targetPolicy, uint _value) {
-      //
-
-
-      Bid memory _newBid;
-      _newBid.bidder = msg.sender;
-      _newBid.value = _value;
-
-      bids.push(_newBid);
-      bidderId[_newBid.bidder] = bids.length;
-
-      NewBid(msg.sender, "Received a new bid");
+  function getReviews(bytes32 _policyId) constant returns(bytes32[] ids, address[] reviewers, uint[] values, uint[] costs, bytes32[] details, address[] purchasers) {
+    if (policyReviews[_policyId].length == 0) {
+      throw;
     }
 
-    function getBids() constant returns (address[] bidder, uint[] value) {
-      uint length = bids.length;
-      address[] memory _bidders = new address[](length);
-      uint[] memory _values = new uint[](length);
+    uint length = policyReviews[_policyId].length;
+    ids = new bytes32[](length);
+    reviewers = new address[](length);
+    values = new uint[](length);
+    costs = new uint[](length);
+    details = new bytes32[](length);
+    purchasers = new address[](length);
 
-      for(uint i = 0; i < length; i++) {
-        Bid memory _bid = bids[i];
-        _bidders[i] = _bid.bidder;
-        _values[i] = _bid.value;
+    for(uint i = 0; i < length; i++) {
+      Review _review = policyReviews[_policyId][i];
+      ids[i] = _review.id;
+      reviewers[i] = _review.reviewer;
+      values[i] = _review.value;
+      costs[i] = _review.cost;
+      details[i] = _review.details;
+      purchasers[i] = _review.purchaser;
+    }
+  }
+
+  function buyReview(bytes32 _reviewId) {
+    if (reviewById[_reviewId] == 0) {
+      throw;
+    }
+
+    bytes32 _policyId = reviewById[_reviewId];
+
+    uint length = policyReviews[_policyId].length;
+
+    for(uint i = 0; i < length; i++) {
+      if(_reviewId == policyReviews[_policyId][i].id) {
+        policyReviews[_policyId][i].purchaser = msg.sender;
+        PurchasedReview(msg.sender, "purchaed review");
+        return;
       }
+    }
 
-      return (_bidders, _values);
-    }*/
-
-    // todo: add get policies
+  }
 }
